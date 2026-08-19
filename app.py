@@ -21,20 +21,21 @@ def load_data(path: Path) -> pd.DataFrame:
 
 if "sales_data" not in st.session_state:
     st.session_state.sales_data = load_data(DATA_PATH).copy()
+if "chart_data" not in st.session_state:
+    st.session_state.chart_data = st.session_state.sales_data.copy()
 
 data = st.session_state.sales_data
 
-st.header("1. フィルタ")
-filter_col1, filter_col2 = st.columns(2)
-years = sorted(data["対象日付"].dt.year.unique().tolist())
-with filter_col1:
+with st.sidebar:
+    st.header("🔎 フィルター")
+    years = sorted(data["対象日付"].dt.year.unique().tolist())
     st.markdown("**対象年**")
     selected_years = [
         year
         for year in years
         if st.checkbox(str(year), value=True, key=f"year_{year}")
     ]
-with filter_col2:
+
     staff_options = sorted(data["担当者"].unique().tolist())
     selected_staff = st.multiselect(
         "担当者",
@@ -44,13 +45,33 @@ with filter_col2:
         help="入力欄に文字を入力すると候補を絞り込めます。",
     )
 
+    st.divider()
+    st.header("↕️ 並び順")
+    sort_columns = st.multiselect(
+        "ソートする列（優先順）",
+        options=data.columns.tolist(),
+        default=["対象日付"],
+        help="選択した順番がソートの優先順位になります。",
+    )
+    sort_ascending = []
+    for position, column in enumerate(sort_columns):
+        direction = st.selectbox(
+            f"{position + 1}. {column}",
+            options=["昇順", "降順"],
+            key=f"sort_direction_{column}",
+        )
+        sort_ascending.append(direction == "昇順")
+
 filtered = data[
     data["対象日付"].dt.year.isin(selected_years) & data["担当者"].isin(selected_staff)
 ].copy()
+if sort_columns:
+    filtered = filtered.sort_values(
+        by=sort_columns, ascending=sort_ascending, kind="mergesort"
+    )
 
-st.divider()
-st.header("2. テーブル表示と編集")
-st.caption("「顧客分類」だけを編集できます。変更内容はこの画面を開いている間保持されます。")
+st.header("1. テーブル表示と編集")
+st.caption("「顧客分類」だけを編集できます。編集後に保存またはグラフ更新を実行してください。")
 
 display_data = filtered.copy()
 edited_data = st.data_editor(
@@ -72,13 +93,34 @@ if not edited_data.empty:
         "顧客分類"
     ]
 
+save_col, refresh_col, message_col = st.columns([1, 1.4, 4])
+with save_col:
+    save_clicked = st.button("💾 保存", type="primary", use_container_width=True)
+with refresh_col:
+    refresh_clicked = st.button("🔄 グラフを更新", use_container_width=True)
+
+if save_clicked:
+    save_data = st.session_state.sales_data.copy()
+    save_data.to_csv(DATA_PATH, index=False, date_format="%Y-%m-%d", encoding="utf-8-sig")
+    with message_col:
+        st.success("編集内容を CSV に保存しました。")
+
+if refresh_clicked:
+    st.session_state.chart_data = st.session_state.sales_data.copy()
+    with message_col:
+        st.success("グラフを最新の編集内容で更新しました。")
+
 st.divider()
-st.header("3. グラフ")
-if filtered.empty:
+st.header("2. グラフ")
+chart_source = st.session_state.chart_data
+chart_filtered = chart_source[
+    chart_source["対象日付"].dt.year.isin(selected_years)
+    & chart_source["担当者"].isin(selected_staff)
+].copy()
+if chart_filtered.empty:
     st.info("フィルタ条件に該当するデータがありません。")
 else:
-    # 編集直後の分類を円グラフにも反映します。
-    chart_data = st.session_state.sales_data.loc[filtered.index].copy()
+    chart_data = chart_filtered
     chart_data["年月"] = chart_data["対象日付"].dt.strftime("%Y-%m")
     monthly_sales = chart_data.groupby("年月", as_index=False)["売上金額"].sum()
     category_sales = chart_data.groupby("顧客分類", as_index=False)["売上金額"].sum()
