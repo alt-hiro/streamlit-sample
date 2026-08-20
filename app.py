@@ -6,6 +6,7 @@ import streamlit as st
 
 
 DATA_PATH = Path(__file__).with_name("sample_sales.csv")
+CATEGORY_PATH = Path(__file__).with_name("customer_categories.csv")
 
 st.set_page_config(page_title="売上データ管理", page_icon="📊", layout="wide")
 st.title("📊 売上データ管理")
@@ -19,12 +20,29 @@ def load_data(path: Path) -> pd.DataFrame:
     return data
 
 
+def load_categories(path: Path) -> list[str]:
+    category_data = pd.read_csv(path)
+    return category_data["顧客分類"].dropna().astype(str).str.strip().tolist()
+
+
 if "sales_data" not in st.session_state:
     st.session_state.sales_data = load_data(DATA_PATH).copy()
 if "chart_data" not in st.session_state:
     st.session_state.chart_data = st.session_state.sales_data.copy()
 
 data = st.session_state.sales_data
+categories = load_categories(CATEGORY_PATH)
+if not categories:
+    st.error("顧客分類マスタが空です。マスタメンテナンス画面で分類を登録してください。")
+    st.stop()
+
+invalid_categories = sorted(set(data["顧客分類"].dropna()) - set(categories))
+if invalid_categories:
+    st.error(
+        "売上データにマスタ未登録の顧客分類があります: "
+        + "、".join(invalid_categories)
+    )
+    st.stop()
 
 with st.sidebar:
     st.header("🔎 フィルター")
@@ -79,7 +97,12 @@ edited_data = st.data_editor(
     disabled=["対象日付", "担当者", "顧客名", "売上金額"],
     column_config={
         "対象日付": st.column_config.DateColumn("対象日付", format="YYYY-MM-DD"),
-        "顧客分類": st.column_config.TextColumn("顧客分類", help="この列のみ編集できます"),
+        "顧客分類": st.column_config.SelectboxColumn(
+            "顧客分類",
+            help="顧客分類マスタに登録された候補から選択してください",
+            options=categories,
+            required=True,
+        ),
         "売上金額": st.column_config.NumberColumn("売上金額", format="¥%d"),
     },
     hide_index=True,
