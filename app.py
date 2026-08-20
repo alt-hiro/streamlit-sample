@@ -58,9 +58,9 @@ with st.sidebar:
     selected_staff = st.multiselect(
         "担当者",
         options=staff_options,
-        default=staff_options,
-        placeholder="担当者を選択してください",
-        help="入力欄に文字を入力すると候補を絞り込めます。",
+        default=[],
+        placeholder="指定なし（すべての担当者）",
+        help="未選択の場合はすべての担当者を表示します。入力すると候補を絞り込めます。",
     )
 
     st.divider()
@@ -68,7 +68,7 @@ with st.sidebar:
     sort_columns = st.multiselect(
         "ソートする列（優先順）",
         options=data.columns.tolist(),
-        default=["対象日付"],
+        default=["対象日付", "顧客分類", "顧客名"],
         help="選択した順番がソートの優先順位になります。",
     )
     sort_ascending = []
@@ -80,25 +80,32 @@ with st.sidebar:
         )
         sort_ascending.append(direction == "昇順")
 
-filtered = data[
-    data["対象日付"].dt.year.isin(selected_years) & data["担当者"].isin(selected_staff)
-].copy()
+filter_mask = data["対象日付"].dt.year.isin(selected_years)
+if selected_staff:
+    filter_mask &= data["担当者"].isin(selected_staff)
+filtered = data[filter_mask].copy()
 if sort_columns:
     filtered = filtered.sort_values(
         by=sort_columns, ascending=sort_ascending, kind="mergesort"
     )
 
 st.header("1. テーブル表示と編集")
-st.caption("「顧客分類」だけを編集できます。編集後に保存またはグラフ更新を実行してください。")
+st.caption(
+    "薄い黄色の「顧客分類」列だけを編集できます。編集後に保存またはグラフ更新を実行してください。"
+)
 
 display_data = filtered.copy()
+styled_display_data = display_data.style.apply(
+    lambda column: ["background-color: #fff9c4"] * len(column),
+    subset=["顧客分類"],
+)
 edited_data = st.data_editor(
-    display_data,
+    styled_display_data,
     disabled=["対象日付", "担当者", "顧客名", "売上金額"],
     column_config={
         "対象日付": st.column_config.DateColumn("対象日付", format="YYYY-MM-DD"),
         "顧客分類": st.column_config.SelectboxColumn(
-            "顧客分類",
+            "🟨 顧客分類（編集可）",
             help="顧客分類マスタに登録された候補から選択してください",
             options=categories,
             required=True,
@@ -136,10 +143,10 @@ if refresh_clicked:
 st.divider()
 st.header("2. グラフ")
 chart_source = st.session_state.chart_data
-chart_filtered = chart_source[
-    chart_source["対象日付"].dt.year.isin(selected_years)
-    & chart_source["担当者"].isin(selected_staff)
-].copy()
+chart_filter_mask = chart_source["対象日付"].dt.year.isin(selected_years)
+if selected_staff:
+    chart_filter_mask &= chart_source["担当者"].isin(selected_staff)
+chart_filtered = chart_source[chart_filter_mask].copy()
 if chart_filtered.empty:
     st.info("フィルタ条件に該当するデータがありません。")
 else:
