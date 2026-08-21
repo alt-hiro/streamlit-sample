@@ -1,7 +1,8 @@
 from importlib.util import find_spec
+from html import escape
+from math import cos, pi, sin
 from pathlib import Path
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -30,6 +31,76 @@ def load_data(path: Path) -> pd.DataFrame:
 def load_categories(path: Path) -> list[str]:
     category_data = pd.read_csv(path)
     return category_data["顧客分類"].dropna().astype(str).str.strip().tolist()
+
+
+def render_bar_chart(chart_data: pd.DataFrame) -> str:
+    """年月別売上を外部グラフライブラリなしのSVGとして生成します。"""
+    width, height = 900, 350
+    left, top, bottom = 75, 20, 65
+    plot_width, plot_height = width - left - 20, height - top - bottom
+    maximum = max(float(chart_data["売上金額"].max()), 1)
+    bar_slot = plot_width / max(len(chart_data), 1)
+    bar_width = max(bar_slot * 0.72, 2)
+    elements = [
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#999"/>',
+        f'<line x1="{left}" y1="{top + plot_height}" x2="{width - 20}" y2="{top + plot_height}" stroke="#999"/>',
+    ]
+    for position, row in chart_data.reset_index(drop=True).iterrows():
+        value = float(row["売上金額"])
+        bar_height = value / maximum * plot_height
+        x = left + position * bar_slot + (bar_slot - bar_width) / 2
+        y = top + plot_height - bar_height
+        label = escape(str(row["年月"]))
+        elements.append(
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_width:.2f}" '
+            f'height="{bar_height:.2f}" fill="#4C78A8"><title>{label}: ¥{value:,.0f}</title></rect>'
+        )
+        elements.append(
+            f'<text x="{x + bar_width / 2:.2f}" y="{top + plot_height + 16}" '
+            f'text-anchor="end" transform="rotate(-45 {x + bar_width / 2:.2f} {top + plot_height + 16})" '
+            f'font-size="10">{label}</text>'
+        )
+    elements.append(
+        f'<text x="15" y="{top + plot_height / 2}" font-size="12" '
+        f'transform="rotate(-90 15 {top + plot_height / 2})">売上金額（円）</text>'
+    )
+    return f'<svg viewBox="0 0 {width} {height}" width="100%" role="img">{"".join(elements)}</svg>'
+
+
+def render_pie_chart(chart_data: pd.DataFrame) -> str:
+    """顧客分類別売上を外部グラフライブラリなしのSVGとして生成します。"""
+    colors = ["#4C78A8", "#F58518", "#E45756", "#72B7B2", "#54A24B", "#B279A2"]
+    total = float(chart_data["売上金額"].sum())
+    start_angle = -pi / 2
+    paths, legends = [], []
+    for position, row in chart_data.reset_index(drop=True).iterrows():
+        value = float(row["売上金額"])
+        angle = value / total * 2 * pi
+        end_angle = start_angle + angle
+        x1, y1 = 180 + 130 * cos(start_angle), 175 + 130 * sin(start_angle)
+        x2, y2 = 180 + 130 * cos(end_angle), 175 + 130 * sin(end_angle)
+        large_arc = 1 if angle > pi else 0
+        color = colors[position % len(colors)]
+        label = escape(str(row["顧客分類"]))
+        tooltip = f"{label}: ¥{value:,.0f} ({value / total:.1%})"
+        if len(chart_data) == 1:
+            paths.append(
+                f'<circle cx="180" cy="175" r="130" fill="{color}">'
+                f"<title>{tooltip}</title></circle>"
+            )
+        else:
+            paths.append(
+                f'<path d="M 180 175 L {x1:.2f} {y1:.2f} A 130 130 0 {large_arc} 1 '
+                f'{x2:.2f} {y2:.2f} Z" fill="{color}" stroke="white">'
+                f"<title>{tooltip}</title></path>"
+            )
+        legends.append(
+            f'<rect x="350" y="{55 + position * 32}" width="14" height="14" fill="{color}"/>'
+            f'<text x="372" y="{67 + position * 32}" font-size="13">'
+            f'{label}  ¥{value:,.0f} ({value / total:.1%})</text>'
+        )
+        start_angle = end_angle
+    return f'<svg viewBox="0 0 700 350" width="100%" role="img">{"".join(paths + legends)}</svg>'
 
 
 if "sales_data" not in st.session_state:
@@ -227,26 +298,8 @@ else:
     chart_col1, chart_col2 = st.columns(2)
     with chart_col1:
         st.subheader("年月別の売上金額")
-        bar_chart = (
-            alt.Chart(monthly_sales)
-            .mark_bar(color="#4C78A8")
-            .encode(
-                x=alt.X("年月:N", title="年月", sort=None),
-                y=alt.Y("売上金額:Q", title="売上金額（円）"),
-                tooltip=["年月:N", alt.Tooltip("売上金額:Q", format=",")],
-            )
-        )
-        st.altair_chart(bar_chart, use_container_width=True)
+        st.markdown(render_bar_chart(monthly_sales), unsafe_allow_html=True)
 
     with chart_col2:
         st.subheader("顧客分類別の売上金額")
-        pie_chart = (
-            alt.Chart(category_sales)
-            .mark_arc(innerRadius=35)
-            .encode(
-                theta=alt.Theta("売上金額:Q"),
-                color=alt.Color("顧客分類:N", title="顧客分類"),
-                tooltip=["顧客分類:N", alt.Tooltip("売上金額:Q", format=",")],
-            )
-        )
-        st.altair_chart(pie_chart, use_container_width=True)
+        st.markdown(render_pie_chart(category_sales), unsafe_allow_html=True)
