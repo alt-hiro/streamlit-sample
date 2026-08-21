@@ -1,9 +1,14 @@
+from importlib.util import find_spec
 from pathlib import Path
 
 import altair as alt
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, GridUpdateMode
+
+
+AGGRID_AVAILABLE = find_spec("st_aggrid") is not None
+if AGGRID_AVAILABLE:
+    from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, GridUpdateMode
 
 
 DATA_PATH = Path(__file__).with_name("sample_sales.csv")
@@ -114,36 +119,67 @@ display_data = filtered.copy()
 display_data["対象日付"] = display_data["対象日付"].dt.strftime("%Y-%m-%d")
 display_data["__row_id"] = display_data.index
 
-grid_builder = GridOptionsBuilder.from_dataframe(display_data)
-grid_builder.configure_default_column(editable=False, sortable=False, filter=False)
-grid_builder.configure_column("対象日付", header_name="対象日付")
-grid_builder.configure_column("種別", header_name="種別", type=["numericColumn"])
-grid_builder.configure_column("種別名", header_name="種別名")
-grid_builder.configure_column("部署", header_name="部署", type=["numericColumn"])
-grid_builder.configure_column("部署名", header_name="部署名")
-grid_builder.configure_column("担当者", header_name="担当者")
-grid_builder.configure_column("顧客名", header_name="顧客名")
-grid_builder.configure_column(
-    "顧客分類",
-    header_name="顧客分類（編集可）",
-    editable=True,
-    cellEditor="agSelectCellEditor",
-    cellEditorParams={"values": categories},
-    cellStyle={"backgroundColor": "#fff9c4"},
-)
-grid_builder.configure_column("売上金額", header_name="売上金額", type=["numericColumn"])
-grid_builder.configure_column("__row_id", hide=True)
+if AGGRID_AVAILABLE:
+    grid_builder = GridOptionsBuilder.from_dataframe(display_data)
+    grid_builder.configure_default_column(editable=False, sortable=False, filter=False)
+    grid_builder.configure_column("対象日付", header_name="対象日付")
+    grid_builder.configure_column("種別", header_name="種別", type=["numericColumn"])
+    grid_builder.configure_column("種別名", header_name="種別名")
+    grid_builder.configure_column("部署", header_name="部署", type=["numericColumn"])
+    grid_builder.configure_column("部署名", header_name="部署名")
+    grid_builder.configure_column("担当者", header_name="担当者")
+    grid_builder.configure_column("顧客名", header_name="顧客名")
+    grid_builder.configure_column(
+        "顧客分類",
+        header_name="顧客分類（編集可）",
+        editable=True,
+        cellEditor="agSelectCellEditor",
+        cellEditorParams={"values": categories},
+        cellStyle={"backgroundColor": "#fff9c4"},
+    )
+    grid_builder.configure_column(
+        "売上金額", header_name="売上金額", type=["numericColumn"]
+    )
+    grid_builder.configure_column("__row_id", hide=True)
 
-grid_response = AgGrid(
-    display_data,
-    gridOptions=grid_builder.build(),
-    update_mode=GridUpdateMode.VALUE_CHANGED,
-    data_return_mode=DataReturnMode.AS_INPUT,
-    fit_columns_on_grid_load=True,
-    height=420,
-    key="sales_editor_grid",
-)
-edited_data = pd.DataFrame(grid_response["data"])
+    grid_response = AgGrid(
+        display_data,
+        gridOptions=grid_builder.build(),
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        data_return_mode=DataReturnMode.AS_INPUT,
+        fit_columns_on_grid_load=True,
+        height=420,
+        key="sales_editor_grid",
+    )
+    edited_data = pd.DataFrame(grid_response["data"])
+else:
+    st.warning(
+        "streamlit-aggrid が未インストールのため標準テーブルで表示しています。"
+        "薄い黄色のセル表示を有効にするには `python -m pip install -r requirements.txt` "
+        "を実行してください。"
+    )
+    edited_data = st.data_editor(
+        display_data,
+        disabled=[
+            "対象日付",
+            "種別",
+            "種別名",
+            "部署",
+            "部署名",
+            "担当者",
+            "顧客名",
+            "売上金額",
+        ],
+        column_config={
+            "顧客分類": st.column_config.SelectboxColumn(
+                "顧客分類（編集可）", options=categories, required=True
+            ),
+            "__row_id": None,
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="sales_editor_fallback",
+    )
 
 # フィルタ後も元データの行インデックスを維持しているため、編集値を正しい行へ戻せます。
 if not edited_data.empty:

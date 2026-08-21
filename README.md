@@ -24,11 +24,13 @@ Python 3.10 以上を推奨します。
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
 ```
 
 コマンド実行後、通常はブラウザで `http://localhost:8501` が開きます。
+
+`No module named 'st_aggrid'` と表示された場合は、アプリを起動したものと同じPython環境で `python -m pip install -r requirements.txt` を再実行してください。未インストールの場合でもアプリは標準テーブルへ切り替えて動作しますが、編集セルの薄い黄色の背景色は `streamlit-aggrid` のインストール後に有効になります。
 
 ## ファイル構成
 
