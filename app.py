@@ -17,7 +17,8 @@ st.caption("売上データの絞り込み、顧客分類の編集、集計結�
 @st.cache_data
 def load_data(path: Path) -> pd.DataFrame:
     data = pd.read_csv(path, parse_dates=["対象日付"])
-    data["売上金額"] = pd.to_numeric(data["売上金額"])
+    for column in ["種別", "部署", "売上金額"]:
+        data[column] = pd.to_numeric(data[column])
     return data
 
 
@@ -116,6 +117,10 @@ display_data["__row_id"] = display_data.index
 grid_builder = GridOptionsBuilder.from_dataframe(display_data)
 grid_builder.configure_default_column(editable=False, sortable=False, filter=False)
 grid_builder.configure_column("対象日付", header_name="対象日付")
+grid_builder.configure_column("種別", header_name="種別", type=["numericColumn"])
+grid_builder.configure_column("種別名", header_name="種別名")
+grid_builder.configure_column("部署", header_name="部署", type=["numericColumn"])
+grid_builder.configure_column("部署名", header_name="部署名")
 grid_builder.configure_column("担当者", header_name="担当者")
 grid_builder.configure_column("顧客名", header_name="顧客名")
 grid_builder.configure_column(
