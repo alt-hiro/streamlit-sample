@@ -3,6 +3,7 @@ from pathlib import Path
 import altair as alt
 import pandas as pd
 import streamlit as st
+from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, GridUpdateMode
 
 
 DATA_PATH = Path(__file__).with_name("sample_sales.csv")
@@ -47,12 +48,13 @@ if invalid_categories:
 with st.sidebar:
     st.header("🔎 フィルター")
     years = sorted(data["対象日付"].dt.year.unique().tolist())
-    st.markdown("**対象年**")
-    selected_years = [
-        year
-        for year in years
-        if st.checkbox(str(year), value=True, key=f"year_{year}")
-    ]
+    selected_years = st.multiselect(
+        "対象年",
+        options=years,
+        default=[],
+        placeholder="指定なし（すべての年）",
+        help="未選択の場合はすべての年を表示します。",
+    )
 
     staff_options = sorted(data["担当者"].unique().tolist())
     selected_staff = st.multiselect(
@@ -61,6 +63,15 @@ with st.sidebar:
         default=[],
         placeholder="指定なし（すべての担当者）",
         help="未選択の場合はすべての担当者を表示します。入力すると候補を絞り込めます。",
+    )
+
+    customer_options = sorted(data["顧客名"].unique().tolist())
+    selected_customers = st.multiselect(
+        "顧客名",
+        options=customer_options,
+        default=[],
+        placeholder="指定なし（すべての顧客）",
+        help="未選択の場合はすべての顧客を表示します。入力すると候補を絞り込めます。",
     )
 
     st.divider()
@@ -80,9 +91,13 @@ with st.sidebar:
         )
         sort_ascending.append(direction == "昇順")
 
-filter_mask = data["対象日付"].dt.year.isin(selected_years)
+filter_mask = pd.Series(True, index=data.index)
+if selected_years:
+    filter_mask &= data["対象日付"].dt.year.isin(selected_years)
 if selected_staff:
     filter_mask &= data["担当者"].isin(selected_staff)
+if selected_customers:
+    filter_mask &= data["顧客名"].isin(selected_customers)
 filtered = data[filter_mask].copy()
 if sort_columns:
     filtered = filtered.sort_values(
@@ -95,33 +110,42 @@ st.caption(
 )
 
 display_data = filtered.copy()
-styled_display_data = display_data.style.apply(
-    lambda column: ["background-color: #fff9c4"] * len(column),
-    subset=["顧客分類"],
+display_data["対象日付"] = display_data["対象日付"].dt.strftime("%Y-%m-%d")
+display_data["__row_id"] = display_data.index
+
+grid_builder = GridOptionsBuilder.from_dataframe(display_data)
+grid_builder.configure_default_column(editable=False, sortable=False, filter=False)
+grid_builder.configure_column("対象日付", header_name="対象日付")
+grid_builder.configure_column("担当者", header_name="担当者")
+grid_builder.configure_column("顧客名", header_name="顧客名")
+grid_builder.configure_column(
+    "顧客分類",
+    header_name="顧客分類（編集可）",
+    editable=True,
+    cellEditor="agSelectCellEditor",
+    cellEditorParams={"values": categories},
+    cellStyle={"backgroundColor": "#fff9c4"},
 )
-edited_data = st.data_editor(
-    styled_display_data,
-    disabled=["対象日付", "担当者", "顧客名", "売上金額"],
-    column_config={
-        "対象日付": st.column_config.DateColumn("対象日付", format="YYYY-MM-DD"),
-        "顧客分類": st.column_config.SelectboxColumn(
-            "🟨 顧客分類（編集可）",
-            help="顧客分類マスタに登録された候補から選択してください",
-            options=categories,
-            required=True,
-        ),
-        "売上金額": st.column_config.NumberColumn("売上金額", format="¥%d"),
-    },
-    hide_index=True,
-    use_container_width=True,
-    key="sales_editor",
+grid_builder.configure_column("売上金額", header_name="売上金額", type=["numericColumn"])
+grid_builder.configure_column("__row_id", hide=True)
+
+grid_response = AgGrid(
+    display_data,
+    gridOptions=grid_builder.build(),
+    update_mode=GridUpdateMode.VALUE_CHANGED,
+    data_return_mode=DataReturnMode.AS_INPUT,
+    fit_columns_on_grid_load=True,
+    height=420,
+    key="sales_editor_grid",
 )
+edited_data = pd.DataFrame(grid_response["data"])
 
 # フィルタ後も元データの行インデックスを維持しているため、編集値を正しい行へ戻せます。
 if not edited_data.empty:
-    st.session_state.sales_data.loc[edited_data.index, "顧客分類"] = edited_data[
+    row_ids = pd.to_numeric(edited_data["__row_id"]).astype(int)
+    st.session_state.sales_data.loc[row_ids, "顧客分類"] = edited_data[
         "顧客分類"
-    ]
+    ].to_numpy()
 
 save_col, refresh_col, message_col = st.columns([1, 1.4, 4])
 with save_col:
@@ -143,9 +167,13 @@ if refresh_clicked:
 st.divider()
 st.header("2. グラフ")
 chart_source = st.session_state.chart_data
-chart_filter_mask = chart_source["対象日付"].dt.year.isin(selected_years)
+chart_filter_mask = pd.Series(True, index=chart_source.index)
+if selected_years:
+    chart_filter_mask &= chart_source["対象日付"].dt.year.isin(selected_years)
 if selected_staff:
     chart_filter_mask &= chart_source["担当者"].isin(selected_staff)
+if selected_customers:
+    chart_filter_mask &= chart_source["顧客名"].isin(selected_customers)
 chart_filtered = chart_source[chart_filter_mask].copy()
 if chart_filtered.empty:
     st.info("フィルタ条件に該当するデータがありません。")
